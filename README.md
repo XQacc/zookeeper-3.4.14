@@ -1,4 +1,8 @@
 zookeeper启动在org.apache.zookeeper.server.quorum.QuorumPeerMain中的main方法。
+要调试必须在启动项中添加配置文件的全路径。
+ant eclipse进行编译。不了解的可以百度。
+如果遇到org.apache.zookeeper.Version这个文件报错：
+是因为要实现的info没有这个文件。通过org.apache.zookeeper.version.util.VerGen这个文件。添加3个启动参数生成info这个接口目录。生成的接口文件在org/apache/zookeeper/version/Info.java中，将其复制到org.apache.zookeeper.version.Info即可解决。
 
 For the latest information about ZooKeeper, please visit our website at:
 
