@@ -1,3 +1,5 @@
+zookeeper启动在org.apache.zookeeper.server.quorum.QuorumPeerMain中的main方法。
+
 For the latest information about ZooKeeper, please visit our website at:
 
    http://zookeeper.apache.org/
