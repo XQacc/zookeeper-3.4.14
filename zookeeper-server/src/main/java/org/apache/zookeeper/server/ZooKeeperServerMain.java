@@ -21,6 +21,7 @@ package org.apache.zookeeper.server;
 import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import javax.management.JMException;
 
@@ -83,6 +84,7 @@ public class ZooKeeperServerMain {
         ServerConfig config = new ServerConfig();
         if (args.length == 1) {//重新去去读一遍配置，前面不是读过了吗？干嘛还要读？
             // 反正就是从QuorumPeerConfig读取配置并放到ServerConfig中。
+            // 后来这里明白了QuorumPeerConfig是用于读集群的配置文件，ServerConfig适用于都单机的配置文件，因为配置有所不同，所以对应的结构体就会有变化。
             config.parse(args[0]);
         } else {
             config.parse(args);
@@ -129,7 +131,19 @@ public class ZooKeeperServerMain {
             cnxnFactory.startup(zkServer);
             // Watch status of ZooKeeper server. It will do a graceful shutdown
             // if the server is not running or hits an internal error.
+            //执行完await方法就能操作了。为什么这个时候就可以了？首先它肯定是等待一个子线程结束。当我们debug到这的时候，这里的主线程就会阻塞到这里。
+            //阻塞到这里为什么client执行命令会卡住呢？
+            //首先我们注释掉shutdownLatch.await();那么一启动就会结束，Exiting normally。那么这个方法的作用就很明显了，就是为了让子线程一直执行。
+            //为什么一定要执行await()方法之后命令才会处理呢？能连上说明2181端口是开启的。请求处理链的线程也是开启了的那么调试的时候就是处理链到端口阻塞或者返回的时候阻塞了。
+            //通过在PrepRequestProcessor的run方法前加上打印符发现是执行了await后才打印的，说明这个时候是阻塞了处理链到端口的地方。
+            //com.xq.test.ServerSocketChannelTest大概模拟了一下，也许不对，可能是执行await方法之后才去处理端口接受的数据的，那我怎么证明呢？
+            //首先肯定有方法接受并处理数据。然后定位到org.apache.zookeeper.server.NIOServerCnxnFactory.run方法中。
+            //我在await方法加了打印，也在NIOServerCnxnFactory.run加了打印。从多次执行打印看就是先接受，处理，所以线程是没有被阻塞的，说明我想错了。
+            //实际情况应该是我dedug的当断点到这的时候程序已经是暂停状态，它是不会跑代码的，所以是个错误的感觉，白写这么多！
+            //TimeUnit.MINUTES.sleep(2);照样能用。。。注释不删，就当是教训吧。
+            System.out.println("await方法");
             shutdownLatch.await();
+//            TimeUnit.MINUTES.sleep(2);
             shutdown();
 
             cnxnFactory.join();

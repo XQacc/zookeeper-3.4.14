@@ -422,7 +422,8 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
         registerJMX();
         //设置状态为运行
         setState(State.RUNNING);
-        //启动完成。开始唤醒所有线程。
+        //启动完成。开始唤醒所有线程。这里不知道有什么作用，我就算是注释掉操作照样能运行。
+        //但是上一步setState(State.RUNNING);注释掉客户端就能连证明至少要到setState后server才初始化完成。
         notifyAll();
     }
 

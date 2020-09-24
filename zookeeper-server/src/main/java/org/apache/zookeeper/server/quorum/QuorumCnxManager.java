@@ -123,6 +123,12 @@ public class QuorumCnxManager {
     /*
      * Mapping from Peer to Thread number
      */
+    /**
+     * 这里有3个map：
+     * 1.senderWorkerMap：顾名思义就是向其它服务器发送的map。因为向每个服务器发送的情况不一样，所以需要这样一个map，key是sid，值是一个线程。
+     * 2.queueSendMap：顾名思义就是发送消息的map，key是sid，值是阻塞队列，是为了记录当前服务器发送到其它服务器的消息队列。
+     * 3.lastMessageSent：最新发送的消息。维护这个就是在投票时及时更新投票，比如我本来是投的自己，后面发现有个比我更合适，那么我就把票改为投另一个
+     */
     final ConcurrentHashMap<Long, SendWorker> senderWorkerMap;
     final ConcurrentHashMap<Long, ArrayBlockingQueue<ByteBuffer>> queueSendMap;
     final ConcurrentHashMap<Long, ByteBuffer> lastMessageSent;
@@ -514,21 +520,23 @@ public class QuorumCnxManager {
         /*
          * If sending message to myself, then simply enqueue it (loopback).
          */
-        if (this.mySid == sid) {
+        if (this.mySid == sid) {//如果是本机的话
              b.position(0);
+             //直接添加到recvQueue中
              addToRecvQueue(new Message(b.duplicate(), sid));
             /*
              * Otherwise send to the corresponding thread to send.
              */
-        } else {
+        } else {//不是本机的话
              /*
               * Start a new connection if doesn't have one already.
               */
              ArrayBlockingQueue<ByteBuffer> bq = new ArrayBlockingQueue<ByteBuffer>(SEND_CAPACITY);
+             //putIfAbsent 如果传入key对应的value已经存在，就返回存在的value，不进行替换。如果不存在，就添加key和value，返回null
              ArrayBlockingQueue<ByteBuffer> bqExisting = queueSendMap.putIfAbsent(sid, bq);
-             if (bqExisting != null) {
+             if (bqExisting != null) {//如果不是null，说明已经存在了。证明已经投过一票了。就把b加入到bqExisting中
                  addToSendQueue(bqExisting, b);
-             } else {
+             } else {//如果为null，说明目前为止还没有投过。就把b加入到bq中。为啥添加到不同的队列中？
                  addToSendQueue(bq, b);
              }
              connectOne(sid);
@@ -544,7 +552,7 @@ public class QuorumCnxManager {
     synchronized public void connectOne(long sid){
         if (!connectedToPeer(sid)){
             InetSocketAddress electionAddr;
-            if (view.containsKey(sid)) {
+            if (view.containsKey(sid)) {//view包含了所有server.开头的信息
                 electionAddr = view.get(sid).electionAddr;
             } else {
                 LOG.warn("Invalid server id: " + sid);
@@ -555,7 +563,7 @@ public class QuorumCnxManager {
                 LOG.debug("Opening channel to server " + sid);
                 Socket sock = new Socket();
                 setSockOpts(sock);
-                sock.connect(view.get(sid).electionAddr, cnxTO);
+                sock.connect(view.get(sid).electionAddr, cnxTO);//连接另外一台服务器，如果5s内连不上，报异常。
                 LOG.debug("Connected to server " + sid);
 
                 // Sends connection request asynchronously if the quorum
@@ -719,12 +727,13 @@ public class QuorumCnxManager {
          */
         @Override
         public void run() {
-            int numRetries = 0;
+            int numRetries = 0;//重试次数
             InetSocketAddress addr;
-            while((!shutdown) && (numRetries < 3)){
+            while((!shutdown) && (numRetries < 3)){//未关闭且重试次数小于3
                 try {
                     ss = new ServerSocket();
                     ss.setReuseAddress(true);
+                    //当前选举规则
                     if (listenOnAllIPs) {
                         int port = view.get(QuorumCnxManager.this.mySid)
                             .electionAddr.getPort();

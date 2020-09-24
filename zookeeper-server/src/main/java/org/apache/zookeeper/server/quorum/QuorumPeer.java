@@ -633,29 +633,40 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     
     @Override
     public synchronized void start() {
+        //加载事务和快照。其实就是恢复的意思。主要就是把数据加载到内存，拿到纪元号之类的
         loadDataBase();
-        cnxnFactory.start();        
+        //就是启动thread线程，跟单机的那个线程做的一样的事
+        cnxnFactory.start();
+        //领导者选举。（重要）
+        //https://www.cnblogs.com/johnvwan/p/9546909.html 这篇博客讲得很好。
         startLeaderElection();
         super.start();
     }
 
     private void loadDataBase() {
         File updating = new File(getTxnFactory().getSnapDir(),
-                                 UPDATING_EPOCH_FILENAME);
+                                 UPDATING_EPOCH_FILENAME);//拿到dataDir/version目录下的正在更新的updatingEpoch文件
 		try {
+		    //恢复数据
             zkDb.loadDataBase();
 
             // load the epochs
+            //得到当前最新的zxid
             long lastProcessedZxid = zkDb.getDataTree().lastProcessedZxid;
+            //通过最新的zxid拿到当前的epoch。就类似于古代，每次更换朝代就要更换一次国名一样。向右移动了32位
+            //long是64位的。所以前32位就是代表的epoch
     		long epochOfZxid = ZxidUtils.getEpochFromZxid(lastProcessedZxid);
             try {
-            	currentEpoch = readLongFromFile(CURRENT_EPOCH_FILENAME);
+            	currentEpoch = readLongFromFile(CURRENT_EPOCH_FILENAME);//拿到dataDir/version目录下的正在更新的currentEpoch文件
+                //判断条件：如果当前最新的epoch比目前拿到epoch大，说明这个最新的epoch肯定比目前的要新。当然前提是updatingEpoch文件要存在
                 if (epochOfZxid > currentEpoch && updating.exists()) {
                     LOG.info("{} found. The server was terminated after " +
                              "taking a snapshot but before updating current " +
                              "epoch. Setting current epoch to {}.",
                              UPDATING_EPOCH_FILENAME, epochOfZxid);
+                    //所以把当前的epoch设置为当前最新的epoch
                     setCurrentEpoch(epochOfZxid);
+                    //再删除文件
                     if (!updating.delete()) {
                         throw new IOException("Failed to delete " +
                                               updating.toString());
@@ -665,21 +676,25 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
             	// pick a reasonable epoch number
             	// this should only happen once when moving to a
             	// new code version
+                //如果出现了异常就舍弃updatingEpoch中的参数，就以currentEpoch为准。
             	currentEpoch = epochOfZxid;
             	LOG.info(CURRENT_EPOCH_FILENAME
             	        + " not found! Creating with a reasonable default of {}. This should only happen when you are upgrading your installation",
             	        currentEpoch);
             	writeLongToFile(CURRENT_EPOCH_FILENAME, currentEpoch);
             }
+            //上面的if判断确保了epochOfZxid <= currentEpoch,所以这里我是进不去
             if (epochOfZxid > currentEpoch) {
             	throw new IOException("The current epoch, " + ZxidUtils.zxidToString(currentEpoch) + ", is older than the last zxid, " + lastProcessedZxid);
             }
             try {
+                //尝试拿到dataDir/version目录下的正在更新的acceptedEpoch文件
             	acceptedEpoch = readLongFromFile(ACCEPTED_EPOCH_FILENAME);
             } catch(FileNotFoundException e) {
             	// pick a reasonable epoch number
             	// this should only happen once when moving to a
             	// new code version
+                //拿不到就把epochOfZxid赋值给它
             	acceptedEpoch = epochOfZxid;
             	LOG.info(ACCEPTED_EPOCH_FILENAME
             	        + " not found! Creating with a reasonable default of {}. This should only happen when you are upgrading your installation",
@@ -703,14 +718,17 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     }
     synchronized public void startLeaderElection() {
     	try {
+    	    //参数：1、myid。2.最新的zxid。3、当前的纪元号
+            //首先投自己一票。在投票箱中写上自己的信息。
     		currentVote = new Vote(myid, getLastLoggedZxid(), getCurrentEpoch());
     	} catch(IOException e) {
     		RuntimeException re = new RuntimeException(e.getMessage());
     		re.setStackTrace(e.getStackTrace());
     		throw re;
     	}
+    	//getView().values()就是获取到配置文件中的所有以server.开头的信息。包括observer
         for (QuorumServer p : getView().values()) {
-            if (p.id == myid) {
+            if (p.id == myid) {//如果id号是自己
                 myQuorumAddr = p.addr;
                 break;
             }
@@ -727,6 +745,19 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                 throw new RuntimeException(e);
             }
         }
+        //创建选举算法,默认是3.electionAlg可以更改。
+        //此外还有0，1，2.但是现在一般都不推荐了。所以一般不会动
+        //步骤如下：
+        //1、初始化QuorumCnxManager
+        //2、初始化QuorumCnxManager.Listener
+        //3、运行QuorumCnxManager.Listener
+        //4、运行QuorumCnxManager
+        //5、返回FastLeaderElection对象
+        //流程如下：
+        //1.把自己的投票放入queueSendMap中：用于发送自己的投票信息。首先肯定是投自己。
+        //2.queueSendMap中发送给其它服务器，如果是自己这一台就直接放到recvQueue中，如果是其它服务器就通过socket发送投票信息。
+        //3.不断的检测recvQueue中的投票信息，如果在某一时刻recvQueue中过半的服务器（通过sid标识），那个被投票的那个人就设置为leader，其它就设置为follower。
+        //服务器连接方式id大的去连接id小的，不允许小的连接大的。
         this.electionAlg = createElectionAlgorithm(electionType);
     }
     
@@ -822,10 +853,17 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
             le = new AuthFastLeaderElection(this, true);
             break;
         case 3:
+            //创建一个QuorumCnxManager，里面存在几个重要的属性。
+            //ConcurrentHashMap<Long, ArrayBlockingQueue<ByteBuffer>> queueSendMap：
+            //ConcurrentHashMap<Long, SendWorker> senderWorkerMap：就是用来记录其他服务器id以及对应的SendWorker的
+            //ArrayBlockingQueue<Message> recvQueue：保存选票
+            //QuorumCnxManager.Listener
             qcm = createCnxnManager();
+            //姑且认为就是一个监听器。因为是一个线程。
             QuorumCnxManager.Listener listener = qcm.listener;
             if(listener != null){
-                listener.start();
+                listener.start();//启动监听器
+                //这里面比较复杂
                 le = new FastLeaderElection(this, qcm);
             } else {
                 LOG.error("Null listener when initializing cnx manager");

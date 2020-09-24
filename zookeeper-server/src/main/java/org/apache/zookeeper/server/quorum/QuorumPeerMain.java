@@ -174,6 +174,7 @@ public class QuorumPeerMain {
           }
             //初始为0，通过quorum.cnxn.threads.size设置进去。暂定为线程设置.默认是20
           quorumPeer.setQuorumCnxnThreadsSize(config.quorumCnxnThreadsSize);
+          //初始化是否开启了sasl认证
           quorumPeer.initialize();
 
           quorumPeer.start();
