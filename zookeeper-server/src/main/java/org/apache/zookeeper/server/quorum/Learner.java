@@ -199,6 +199,7 @@ public class Learner {
             if (s.id == current.getId()) {
                 // Ensure we have the leader's correct IP address before
                 // attempting to connect.
+                //确保连接的是正确的leader
                 s.recreateSocketAddresses();
                 leaderServer = s;
                 break;
@@ -262,23 +263,29 @@ public class Learner {
         /*
          * Send follower info, including last zxid and sid
          */
+        //拿到本机最新的zxid
     	long lastLoggedZxid = self.getLastLoggedZxid();
+    	//构造要发送的结构数据。
         QuorumPacket qp = new QuorumPacket();                
         qp.setType(pktType);
+        //这里不是相当于拿到这个epoch的起始位置吗？这里的确是的
         qp.setZxid(ZxidUtils.makeZxid(self.getAcceptedEpoch(), 0));
         
         /*
          * Add sid to payload
          */
+        //构造leader信息数据？self.getId()拿到的是myid（也可以认为是sid）
         LearnerInfo li = new LearnerInfo(self.getId(), 0x10000);
         ByteArrayOutputStream bsid = new ByteArrayOutputStream();
         BinaryOutputArchive boa = BinaryOutputArchive.getArchive(bsid);
+        //作为一个记录保存到本机
         boa.writeRecord(li, "LearnerInfo");
+        //空的？这一步干啥的？
         qp.setData(bsid.toByteArray());
-        
+        //就是序列化，然后发送出去？这里发送的什么数据？
         writePacket(qp, true);
-        readPacket(qp);        
-        final long newEpoch = ZxidUtils.getEpochFromZxid(qp.getZxid());
+        readPacket(qp);//这部分是干啥？反正是反序列化
+        final long newEpoch = ZxidUtils.getEpochFromZxid(qp.getZxid());//从leader那最新的获取最新的epoch
 		if (qp.getType() == Leader.LEADERINFO) {
         	// we are connected to a 1.0 server so accept the new epoch and read the next packet
         	leaderProtocolVersion = ByteBuffer.wrap(qp.getData()).getInt();
@@ -328,11 +335,11 @@ public class Learner {
         LinkedList<Long> packetsCommitted = new LinkedList<Long>();
         LinkedList<PacketInFlight> packetsNotCommitted = new LinkedList<PacketInFlight>();
         synchronized (zk) {
-            if (qp.getType() == Leader.DIFF) {
+            if (qp.getType() == Leader.DIFF) {//表明跟leader有差别
                 LOG.info("Getting a diff from the leader 0x{}", Long.toHexString(qp.getZxid()));
                 snapshotNeeded = false;
             }
-            else if (qp.getType() == Leader.SNAP) {
+            else if (qp.getType() == Leader.SNAP) {//表明follower需要从leader同步快照
                 LOG.info("Getting a snapshot from leader 0x" + Long.toHexString(qp.getZxid()));
                 // The leader is going to dump the database
                 // clear our own database and read
@@ -344,7 +351,7 @@ public class Learner {
                     throw new IOException("Missing signature");                   
                 }
                 zk.getZKDatabase().setlastProcessedZxid(qp.getZxid());
-            } else if (qp.getType() == Leader.TRUNC) {
+            } else if (qp.getType() == Leader.TRUNC) {//事务包，代表需要会滚事务。
                 //we need to truncate the log to the lastzxid of the leader
                 LOG.warn("Truncating log to get in sync with the leader 0x"
                         + Long.toHexString(qp.getZxid()));
@@ -466,7 +473,7 @@ public class Learner {
         ack.setZxid(ZxidUtils.makeZxid(newEpoch, 0));
         writePacket(ack, true);
         sock.setSoTimeout(self.tickTime * self.syncLimit);
-        zk.startup();
+        zk.startup();//启动learner。所以这里会做好请求处理链
         /*
          * Update the election vote here to ensure that all members of the
          * ensemble report the same vote to new servers that start up and

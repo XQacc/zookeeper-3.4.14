@@ -217,7 +217,7 @@ public class FinalRequestProcessor implements RequestProcessor {
 
                 break;
             }
-            case OpCode.create: {
+            case OpCode.create: {//创建命令
                 lastOp = "CREA";
                 rsp = new CreateResponse(rc.path);
                 err = Code.get(rc.err);
@@ -275,7 +275,7 @@ public class FinalRequestProcessor implements RequestProcessor {
                 rsp = new ExistsResponse(stat);
                 break;
             }
-            case OpCode.getData: {
+            case OpCode.getData: {//get操作，即读操作，直接就在follower进行读操作，不转发给leader。
                 lastOp = "GETD";
                 GetDataRequest getDataRequest = new GetDataRequest();
                 ByteBufferInputStream.byteBuffer2Record(request.request,
@@ -287,7 +287,7 @@ public class FinalRequestProcessor implements RequestProcessor {
                 PrepRequestProcessor.checkACL(zks, zks.getZKDatabase().aclForNode(n),
                         ZooDefs.Perms.READ,
                         request.authInfo);
-                Stat stat = new Stat();
+                Stat stat = new Stat();//得到stat的状态信息
                 byte b[] = zks.getZKDatabase().getData(getDataRequest.getPath(), stat,
                         getDataRequest.getWatch() ? cnxn : null);
                 rsp = new GetDataResponse(b, stat);

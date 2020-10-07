@@ -126,6 +126,7 @@ public class ZooKeeperServerMain {
             cnxnFactory = ServerCnxnFactory.createFactory();
             //生产了一个NIO的cnxn的工厂出来
             //配置文件中配置maxClientCnxns，config.getMaxClientCnxns()就是它的值。默认60
+            //这里其实就开放了让client连接。
             cnxnFactory.configure(config.getClientPortAddress(),
                     config.getMaxClientCnxns());
             cnxnFactory.startup(zkServer);

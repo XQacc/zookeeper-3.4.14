@@ -56,6 +56,8 @@ public class FollowerRequestProcessor extends ZooKeeperCriticalThread implements
     @Override
     public void run() {
         try {
+            //https://www.cnblogs.com/sunshine-2015/p/10977200.html
+            //https://blog.csdn.net/u014634338/article/details/106039491
             while (!finished) {
                 Request request = queuedRequests.take();
                 if (LOG.isTraceEnabled()) {
@@ -68,6 +70,13 @@ public class FollowerRequestProcessor extends ZooKeeperCriticalThread implements
                 // We want to queue the request to be processed before we submit
                 // the request to the leader so that we are ready to receive
                 // the response
+                /**
+                 * 直接调用下一个处理器？
+                 * 它仅仅是加入queuedRequests队列中，再唤醒所有线程，并没有做其它，但是当调用到它的start()时，即CommitProcessor这个线程执行时就不一样了。
+                 * 现在有个疑问，就是processRequest方法中的notifyAll()是做什么的？start里面是做了什么？
+                 * 请看CommitProcessor的run()方法
+                 * 看TestCommitProcessor测试，虽然逻辑不是很符合，但是大致是这个意思
+                 */
                 nextProcessor.processRequest(request);
                 
                 // We now ship the request to the leader. As with all
@@ -87,6 +96,7 @@ public class FollowerRequestProcessor extends ZooKeeperCriticalThread implements
                 case OpCode.createSession:
                 case OpCode.closeSession:
                 case OpCode.multi:
+                    //把写请求转发给leader
                     zks.getFollower().request(request);
                     break;
                 }

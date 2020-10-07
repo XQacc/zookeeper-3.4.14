@@ -640,6 +640,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         //领导者选举。（重要）
         //https://www.cnblogs.com/johnvwan/p/9546909.html 这篇博客讲得很好。
         startLeaderElection();
+        //使用选举算法选出领导并开始同步。
         super.start();
     }
 
@@ -729,6 +730,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     	//getView().values()就是获取到配置文件中的所有以server.开头的信息。包括observer
         for (QuorumServer p : getView().values()) {
             if (p.id == myid) {//如果id号是自己
+                //为什么要有这个判断，因为你不但要告诉其它服务器投的谁，你还要告诉其它服务器是你投的
                 myQuorumAddr = p.addr;
                 break;
             }
@@ -910,7 +912,9 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         setName("QuorumPeer" + "[myid=" + getId() + "]" +
                 cnxnFactory.getLocalAddress());
 
+        System.out.println("当前线程：" + Thread.currentThread().getName());
         LOG.debug("Starting quorum peer");
+        //这个try的内容看不懂要干啥？
         try {
             jmxQuorumBean = new QuorumBean(this);
             MBeanRegistry.getInstance().register(jmxQuorumBean, null);
@@ -942,12 +946,14 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
             /*
              * Main loop
              */
+            //这里我有一个误区，我以为break是直接跳出了while循环，但实际是只是跳出了switch，还是基础不够扎实。break不但用于跳出循环，也用于跳出switch。
+            //测试文件：com.xq.test.TestWhile
             while (running) {
                 switch (getPeerState()) {
                 case LOOKING:
                     LOG.info("LOOKING");
 
-                    if (Boolean.getBoolean("readonlymode.enabled")) {
+                    if (Boolean.getBoolean("readonlymode.enabled")) {//如果开启了只读
                         LOG.info("Attempting to start ReadOnlyZooKeeperServer");
 
                         // Create read-only server but don't start it immediately
@@ -990,9 +996,10 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                             roZkMgr.interrupt();
                             roZk.shutdown();
                         }
-                    } else {
+                    } else {//没有开启只读
                         try {
                             setBCVote(null);
+                            //不断更新投票，直到选出leader
                             setCurrentVote(makeLEStrategy().lookForLeader());
                         } catch (Exception e) {
                             LOG.warn("Unexpected exception", e);
@@ -1016,6 +1023,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                 case FOLLOWING:
                     try {
                         LOG.info("FOLLOWING");
+                        //产出一个适合follower的类
                         setFollower(makeFollower(logFactory));
                         follower.followLeader();
                     } catch (Exception e) {
@@ -1029,7 +1037,10 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                 case LEADING:
                     LOG.info("LEADING");
                     try {
+                        //产出一个适合leader的类
                         setLeader(makeLeader(logFactory));
+                        //这个只是选择过半能接受的epoch，假设有更新的zxid没有启动
+                        //在这个确定epoch的时候它启动了，那么这个leader会直接丢失多的数据吗？看代码好像是的
                         leader.lead();
                         setLeader(null);
                     } catch (Exception e) {

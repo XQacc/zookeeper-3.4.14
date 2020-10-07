@@ -43,7 +43,7 @@ class AckRequestProcessor implements RequestProcessor {
     public void processRequest(Request request) {
         QuorumPeer self = leader.self;
         if(self != null)
-            leader.processAck(self.getId(), request.zxid, null);
+            leader.processAck(self.getId(), request.zxid, null);//由leader去条件触发commit
         else
             LOG.error("Null QuorumPeer");
     }

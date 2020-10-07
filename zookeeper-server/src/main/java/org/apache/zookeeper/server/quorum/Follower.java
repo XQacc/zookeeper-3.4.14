@@ -62,26 +62,30 @@ public class Follower extends Learner{
         self.end_fle = Time.currentElapsedTime();
         long electionTimeTaken = self.end_fle - self.start_fle;
         self.setElectionTimeTaken(electionTimeTaken);
+        //耗时计算
         LOG.info("FOLLOWING - LEADER ELECTION TOOK - {}", electionTimeTaken);
         self.start_fle = 0;
         self.end_fle = 0;
         fzk.registerJMX(new FollowerBean(this, zk), self.jmxLocalPeerBean);
         try {
+            //拿出leader的服务器地址
             QuorumServer leaderServer = findLeader();            
             try {
+                //连接leader
                 connectToLeader(leaderServer.addr, leaderServer.hostname);
-                long newEpochZxid = registerWithLeader(Leader.FOLLOWERINFO);
+                long newEpochZxid = registerWithLeader(Leader.FOLLOWERINFO);//总逻辑就是拿到最新的zxid，并且将epoch，zxid等信息给到leader。
 
                 //check to see if the leader zxid is lower than ours
                 //this should never happen but is just a safety check
                 long newEpoch = ZxidUtils.getEpochFromZxid(newEpochZxid);
-                if (newEpoch < self.getAcceptedEpoch()) {
+                if (newEpoch < self.getAcceptedEpoch()) {//检查leader的epoch是不是更小，一般不可能发生，但是为了安全再检查一遍
                     LOG.error("Proposed leader epoch " + ZxidUtils.zxidToString(newEpochZxid)
                             + " is less than our accepted epoch " + ZxidUtils.zxidToString(self.getAcceptedEpoch()));
                     throw new IOException("Error: Epoch of leader is lower");
                 }
-                syncWithLeader(newEpochZxid);                
+                syncWithLeader(newEpochZxid);//与leader同步，通过快照和zxid来同步。并且开始做请求处理链
                 QuorumPacket qp = new QuorumPacket();
+                //同步完了之后会一直陷入这个循环出不来了
                 while (this.isRunning()) {
                     readPacket(qp);
                     processPacket(qp);
@@ -109,10 +113,10 @@ public class Follower extends Learner{
      */
     protected void processPacket(QuorumPacket qp) throws IOException{
         switch (qp.getType()) {
-        case Leader.PING:            
+        case Leader.PING:  //ping 检测存活性
             ping(qp);            
             break;
-        case Leader.PROPOSAL:            
+        case Leader.PROPOSAL: //接到提议
             TxnHeader hdr = new TxnHeader();
             Record txn = SerializeUtils.deserializeTxn(qp.getData(), hdr);
             if (hdr.getZxid() != lastQueued + 1) {
@@ -124,16 +128,16 @@ public class Follower extends Learner{
             lastQueued = hdr.getZxid();
             fzk.logRequest(hdr, txn);
             break;
-        case Leader.COMMIT:
-            fzk.commit(qp.getZxid());
+        case Leader.COMMIT://提交
+            fzk.commit(qp.getZxid());//接到了leader的commit指令
             break;
-        case Leader.UPTODATE:
+        case Leader.UPTODATE://更新
             LOG.error("Received an UPTODATE message after Follower started");
             break;
-        case Leader.REVALIDATE:
+        case Leader.REVALIDATE://重新验证
             revalidate(qp);
             break;
-        case Leader.SYNC:
+        case Leader.SYNC://同步
             fzk.sync();
             break;
         default:

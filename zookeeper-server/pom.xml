@@ -152,6 +152,7 @@
       <groupId>org.apache.directory.server</groupId>
       <artifactId>apacheds-protocol-ldap</artifactId>
     </dependency>
+
   </dependencies>
 
   <build>

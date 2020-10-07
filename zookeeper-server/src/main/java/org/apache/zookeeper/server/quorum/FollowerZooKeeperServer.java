@@ -54,8 +54,8 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
     ConcurrentLinkedQueue<Request> pendingSyncs;
     
     /**
-     * @param port
-     * @param dataDir
+    // * @param port
+     //* @param dataDir
      * @throws IOException
      */
     FollowerZooKeeperServer(FileTxnSnapLog logFactory,QuorumPeer self,
@@ -71,6 +71,13 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
 
     @Override
     protected void setupRequestProcessors() {
+        //FollowerRequestProcessor。其用作识别当前请求是否是事务请求，若是，那么Follower就会将该请求转发给Leader服务器，Leader服务器是在接收到这个事务请求后，就会将其提交到请求处理链，按照正常事务请求进行处理。
+        //CommitProcessor：事务提交处理器，对于非事务请求，该处理器会直接将请求交给nextProcessor处理；对于事务请求，它会等待集群内针对Proposal的投票直到Proposal可被提交，它保证了事务请求的顺序处理。
+        //SendAckRequestProcessor。其承担了事务日志记录反馈的角色，在完成事务日志记录后，会向Leader服务器发送ACK消息以表明自身完成了事务日志的记录工作。
+        //FollowerRequestProcessor-->CommitProcessor-->FinalRequestProcessor
+        //SyncRequestProcessor用于打快照和写日志的。
+        ////AckRequestProcessor：负责在SyncRequestProcessor处理器完成事务日志记录后，向Proposal投票收集器发送ACK反馈，表示当前leader服务器已经完成了对该Proposal的事务日志记录。
+        //SyncRequestProcessor-->SendAckRequestProcessor
         RequestProcessor finalProcessor = new FinalRequestProcessor(this);
         commitProcessor = new CommitProcessor(finalProcessor,
                 Long.toString(getServerId()), true,

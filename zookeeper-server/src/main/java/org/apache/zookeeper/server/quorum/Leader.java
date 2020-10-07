@@ -385,33 +385,35 @@ public class Leader {
 
         try {
             self.tick.set(0);
-            zk.loadData();
+            zk.loadData();//再加载一次？要做什么？
             
             leaderStateSummary = new StateSummary(self.getCurrentEpoch(), zk.getLastProcessedZxid());
 
             // Start thread that waits for connection requests from 
             // new followers.
+            //开个线程等follower连接进来
             cnxAcceptor = new LearnerCnxAcceptor();
             cnxAcceptor.start();
             
             readyToStart = true;
+            //获取最新的epoch，也是过半机制，选择过半中最大的那一个
             long epoch = getEpochToPropose(self.getId(), self.getAcceptedEpoch());
-            
+            //设置
             zk.setZxid(ZxidUtils.makeZxid(epoch, 0));
             
             synchronized(this){
                 lastProposed = zk.getZxid();
             }
-            
+            //构建发送包向各个follower发送数据
             newLeaderProposal.packet = new QuorumPacket(NEWLEADER, zk.getZxid(),
                     null, null);
 
-
+            //获取低32位，即zxid
             if ((newLeaderProposal.packet.getZxid() & 0xffffffffL) != 0) {
                 LOG.info("NEWLEADER proposal has Zxid of "
                         + Long.toHexString(newLeaderProposal.packet.getZxid()));
             }
-            
+            //等待follower确认epoch，依然是过半验证
             waitForEpochAck(self.getId(), leaderStateSummary);
             self.setCurrentEpoch(epoch);
 
@@ -419,6 +421,7 @@ public class Leader {
             // us. We do this by waiting for the NEWLEADER packet to get
             // acknowledged
             try {
+                //虽然有英文注释，但还是不很懂，反正是要接收到过半的确认。好像是为了确认zxid也是一致的
                 waitForNewLeaderAck(self.getId(), zk.getZxid());
             } catch (InterruptedException e) {
                 shutdown("Waiting for a quorum of followers, only synced with sids: [ "
@@ -435,7 +438,7 @@ public class Leader {
                 self.tick.incrementAndGet();
                 return;
             }
-            
+            //然后启动，跟单机类似
             startZkServer();
             
             /**
@@ -608,6 +611,7 @@ public class Leader {
             LOG.debug("Count for zxid: 0x{} is {}",
                     Long.toHexString(zxid), p.ackSet.size());
         }
+        //集群验证器，过半才能进
         if (self.getQuorumVerifier().containsQuorum(p.ackSet)){             
             if (zxid != lastCommitted+1) {
                 LOG.warn("Commiting zxid 0x{} from {} not first!",
@@ -622,9 +626,9 @@ public class Leader {
             if (p.request == null) {
                 LOG.warn("Going to commmit null request for proposal: {}", p);
             }
-            commit(zxid);
-            inform(p);
-            zk.commitProcessor.commit(p.request);
+            commit(zxid);//发送COMMIT给follower
+            inform(p);//发送INFORM给observer
+            zk.commitProcessor.commit(p.request);//什么情况下commit？看对应的判断。
             if(pendingSyncs.containsKey(zxid)){
                 for(LearnerSyncRequest r: pendingSyncs.remove(zxid)) {
                     sendSync(r);
@@ -766,6 +770,7 @@ public class Leader {
          * Address the rollover issue. All lower 32bits set indicate a new leader
          * election. Force a re-election instead. See ZOOKEEPER-1277
          */
+        //zxid低32位写满了，类似于当选总统到期了，需要重新来进行一波选举
         if ((request.zxid & 0xffffffffL) == 0xffffffffL) {
             String msg =
                     "zxid lower 32 bits have rolled over, forcing re-election, and therefore new epoch start";
@@ -878,6 +883,7 @@ public class Leader {
             if (isParticipant(sid)) {
                 connectingFollowers.add(sid);
             }
+            //构建集群验证器，验证过半机制
             QuorumVerifier verifier = self.getQuorumVerifier();
             if (connectingFollowers.contains(self.getId()) && 
                                             verifier.containsQuorum(connectingFollowers)) {

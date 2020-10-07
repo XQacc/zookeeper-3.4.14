@@ -733,7 +733,7 @@ public class QuorumCnxManager {
                 try {
                     ss = new ServerSocket();
                     ss.setReuseAddress(true);
-                    //当前选举规则
+                    //当前选举端口
                     if (listenOnAllIPs) {
                         int port = view.get(QuorumCnxManager.this.mySid)
                             .electionAddr.getPort();

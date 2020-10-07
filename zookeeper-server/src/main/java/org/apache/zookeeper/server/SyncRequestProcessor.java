@@ -126,12 +126,12 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
                 Request si = null;
                 if (toFlush.isEmpty()) {
                     //这里取阻塞了。啥时候放进去？processRequest这个方法放进去。放的是命令。
-                    //它是通过PrepRequestProcessor去放的
+                    //它是通过PrepRequestProcessor里面调用了SyncRequestProcessor的processRequest去放的
                     si = queuedRequests.take();
                 } else {
                     si = queuedRequests.poll();
                     if (si == null) {
-                        flush(toFlush);
+                        flush(toFlush);//这里就会发起commit指令
                         continue;
                     }
                 }
@@ -199,7 +199,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
         while (!toFlush.isEmpty()) {
             Request i = toFlush.remove();
             if (nextProcessor != null) {
-                nextProcessor.processRequest(i);
+                nextProcessor.processRequest(i);//下一个处理器，就是AckRequestProcessor，调用肯定就会条件触发commit
             }
         }
         if (nextProcessor != null && nextProcessor instanceof Flushable) {

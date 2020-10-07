@@ -72,12 +72,21 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements RequestP
         try {
             Request nextPending = null;            
             while (!finished) {
+                //假设就一条请求。
+                //如果是第一次进入，则len肯定是0.因为压根就没添加过
+                //第二次：如果len>0，证明是非事务性的，就直接调用FinalRequestProcessor的processRequest方法，然后就返回结果了。如果queuedRequests没有数据了（我们假设只有一条，所以没有了），那么就会进入wait方法，阻塞住这个线程。所以这里是什么时候去唤醒的？
+                //这种情况一般人都是想有新的请求加到queuedRequests中吧。还记得processRequest这个方法么？上个处理器直接调用的这个方法，直接notifyAll唤醒。
+                //      如果len=0，证明是事务性的。不会调用最终的处理器，然后就被wait阻塞住。这里又是什么时候被唤醒的？
+                //这种情况想一想数据库，事务性的要么commit，要么rollback。所以这里肯定有一个commit咯。没错就是本类的commit方法让committedRequests>0并唤醒线程。那么啥时候调用commit方法？
+                //leader确认好了就发出一个COMMIT指令，然后leader、follower包括observer就会提交这个请求！follower就从followLeader一直往下找，其它类似，现在最后一个问题，leader什么时候发出这个指令呢？
+                //请看本类的commit方法注释。
                 int len = toProcess.size();
                 for (int i = 0; i < len; i++) {
                     nextProcessor.processRequest(toProcess.get(i));
                 }
                 toProcess.clear();
                 synchronized (this) {
+                    //第一次：前面一个处理器调用了processRequest方法，所以queuedRequests肯定有数据，nextPending也为null，第一个条件就不符合，所以为false。
                     if ((queuedRequests.size() == 0 || nextPending != null)
                             && committedRequests.size() == 0) {
                         wait();
@@ -85,6 +94,8 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements RequestP
                     }
                     // First check and see if the commit came in for the pending
                     // request
+                    //第一次：同上
+                    //第二次：这是什么情况呢？就是请求处理完了，但是可能前面的没有来得及提交。此时就需要把committedRequests取出来赋给toProcess执行下一个处理器。
                     if ((queuedRequests.size() == 0 || nextPending != null)
                             && committedRequests.size() > 0) {
                         Request r = committedRequests.remove();
@@ -120,6 +131,8 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements RequestP
 
                 synchronized (this) {
                     // Process the next requests in the queuedRequests
+                    //第一次是符合这个条件的：那么首先取出请求。我们假设是create请求。那么nextPending就有值了，break，进入第二次while循环。
+                    //第二次：一般进入不了。因为非事务性的会一次取完，事务性的nextPending存在值。
                     while (nextPending == null && queuedRequests.size() > 0) {
                         Request request = queuedRequests.remove();
                         switch (request.type) {
@@ -140,6 +153,7 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements RequestP
                             }
                             break;
                         default:
+                            //以上不是，说明是非事务性请求（相当于读请求）
                             toProcess.add(request);
                         }
                     }
@@ -154,6 +168,11 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements RequestP
     }
 
     synchronized public void commit(Request request) {
+        //follower调用链：运行的时候的逻辑：Follower.followLeader()-->Follower.processPacket()-->FollowerZooKeeperServer.commit()-->CommitProcessor.commit()
+        //observer类似。不写了。
+        //leader调用链：1、调用链的构造逻辑：LeaderZooKeeperServer.setupRequestProcessors()-->ProposalRequestProcessor.initialize()-->SyncRequestProcessor.run()-->SyncRequestProcessor.flush()-->AckRequestProcessor.processRequest()-->Leader.processAck()-->-->CommitProcessor.commit()
+        //leader调用链：2、运行的时候的逻辑：Leader.lead()-->LearnerCnxAcceptor.run()-->LearnerHandler.run()-->Leader.processAck()这个方法就给learner发提交请求-->CommitProcessor.commit()
+        //为什么只有leader有构造逻辑？因为leader才会处理事务请求，而learner是没有处理事务请求的权限的，既然不能处理，干嘛给调用链呢？对吧！
         if (!finished) {
             if (request == null) {
                 LOG.warn("Committed a null!",

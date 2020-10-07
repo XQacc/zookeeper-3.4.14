@@ -58,6 +58,16 @@ public class LeaderZooKeeperServer extends QuorumZooKeeperServer {
     
     @Override
     protected void setupRequestProcessors() {
+        //PrepRequestProcessor：Leader服务器的请求预处理器，进行一些创建请求事务头,事务体，ACL检查和版本检查等的预处理操作。
+        //ProposalRequestProcessor：Leader服务器的事务投票处理器，也是事务处理流程的发起者。对于非事务请求，它会直接将请求流转到 CommitProcessor处理器。对于事务请求，除了将请求交给CommitProcessor处理器外，还会根据请求类型创建对应的Proposal提议，并发送给所有的Follewer服务器来发起一次集群内的事务投票。同时，它还会将事务请求交给SyncRequestProcessor处理器进行事务日志的记录。
+        //SyncRequestProcessor：是事务日志记录处理器，主要用来将事务请求记录到事务日志文件中，同时会根据条件触发zookeeper进行数据快照。
+        //AckRequestProcessor：负责在SyncRequestProcessor处理器完成事务日志记录后，向Proposal投票收集器发送ACK反馈，表示当前leader服务器已经完成了对该Proposal的事务日志记录。
+        //CommitProcessor：事务提交处理器，对于非事务请求，该处理器会直接将请求交给nextProcessor处理；对于事务请求，它会等待集群内针对Proposal的投票直到Proposal可被提交，它保证了事务请求的顺序处理。
+        //ToBeCommitProcessor。该处理器有一个toBeApplied队列，用来存储那些已经被CommitProcessor处理过的可被提交的Proposal。其会将这些请求交付给FinalRequestProcessor处理器处理，待其处理完后，再将其从toBeApplied队列中移除。
+        //FinalRequestProcessor。用来进行客户端请求返回之前的操作，包括创建客户端请求的响应，针对事务请求，该处理还会负责将事务应用到内存数据库中去。
+        //PrepRequestProcessor(预处理)-->ProposalRequestProcessor（提议）-->CommitProcessor（提交（这里会得到follower的过半确认））-->
+        // Leader.ToBeAppliedRequestProcessor（应用）-->FinalRequestProcessor（返回）
+        //（事务请求生效）PrepRequestProcessor(预处理)-->ProposalRequestProcessor（提议）-->SyncRequestProcessor(持久化) -->AckRequestProcessor（持久化成功）
         RequestProcessor finalProcessor = new FinalRequestProcessor(this);
         RequestProcessor toBeAppliedProcessor = new Leader.ToBeAppliedRequestProcessor(
                 finalProcessor, getLeader().toBeApplied);

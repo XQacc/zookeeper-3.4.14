@@ -416,7 +416,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
         //开启一个session跟踪
         startSessionTracker();
         //设置一个请求处理器。传说中的责任链模式。这个有点绕。不过理解了这个模式就好懂。
-        //流程就是PrepRequestProcessor->SyncRequestProcessor->FinalRequestProcessor
+        //单机流程就是PrepRequestProcessor->SyncRequestProcessor->FinalRequestProcessor
         setupRequestProcessors();
         //干嘛的不知道
         registerJMX();
