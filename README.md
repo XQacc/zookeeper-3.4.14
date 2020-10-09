@@ -9,7 +9,7 @@ ant eclipse进行编译。不了解的可以百度。
 
 如果遇到org.apache.zookeeper.Version这个文件报错：
 
-是因为要实现的info没有这个文件。通过org.apache.zookeeper.version.util.VerGen这个文件。添加3个启动参数生成info这个接口目录。生成的接口文件在org/apache/zookeeper/version/Info.java中，将其复制到org.apache.zookeeper.version.Info即可解决。
+是因为要实现的info没有这个文件。通过org.apache.zookeeper.version.util.VerGen这个文件。添加3个启动参数生成info这个接口目录。生成的接口文件在org/apache/zookeeper/version/Info.java中，将其复制到org.apache.zookeeper.version.Info即可解决。不知道为什么这里上传的没有更新info.java，所以这里下载源码之后要自己导入一遍info.java。导入idea即可使用。
 
 个人感觉如果zookeeper懂了的话。redis的集群很容易懂。把rdb当成快照，把aof当成zxid，把哨兵模式当成领导者选举等等。因为设计思想是一样的，所以理论相仿，模式也相仿。
 
