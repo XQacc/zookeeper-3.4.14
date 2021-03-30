@@ -127,7 +127,8 @@ public class QuorumPeerMain {
     }
 
     public void runFromConfig(QuorumPeerConfig config) throws IOException {
-        LOG.info("这是集群模式！！！");
+        System.out.println("这是集群模式！！！");
+        LOG.warn("这是集群模式！！！");
       try {
           ManagedUtil.registerLog4jMBeans();
       } catch (JMException e) {

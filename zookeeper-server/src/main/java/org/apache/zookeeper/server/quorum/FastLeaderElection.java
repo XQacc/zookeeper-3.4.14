@@ -810,7 +810,7 @@ public class FastLeaderElection implements Election {
             self.jmxLeaderElectionBean = null;
         }
         if (self.start_fle == 0) {
-           self.start_fle = Time.currentElapsedTime();
+            self.start_fle = Time.currentElapsedTime();
         }
         try {
             //初始化一个投票的map
@@ -870,140 +870,140 @@ public class FastLeaderElection implements Election {
                      */
                     //处理投票
                     switch (n.state) {
-                    case LOOKING:
-                        // If notification > current, replace and send messages out
-                        //如果参加选举的纪元（Epoch）>当前逻辑的纪元，说明参加选举的肯定比现在选举的更新，更有说服力
-                        //所以当前就把纪元更新一下。清空自己得到的投票（比如唐代的尚方宝剑肯定不能拿到清朝使用，一个道理）。
-                        //然后就投那个参加选举的纪元。
-                        if (n.electionEpoch > logicalclock.get()) {
-                            logicalclock.set(n.electionEpoch);
-                            recvset.clear();
-                            if(totalOrderPredicate(n.leader, n.zxid, n.peerEpoch,
-                                    getInitId(), getInitLastLoggedZxid(), getPeerEpoch())) {
+                        case LOOKING:
+                            // If notification > current, replace and send messages out
+                            //如果参加选举的纪元（Epoch）>当前逻辑的纪元，说明参加选举的肯定比现在选举的更新，更有说服力
+                            //所以当前就把纪元更新一下。清空自己得到的投票（比如唐代的尚方宝剑肯定不能拿到清朝使用，一个道理）。
+                            //然后就投那个参加选举的纪元。
+                            if (n.electionEpoch > logicalclock.get()) {
+                                logicalclock.set(n.electionEpoch);
+                                recvset.clear();
+                                if(totalOrderPredicate(n.leader, n.zxid, n.peerEpoch,
+                                        getInitId(), getInitLastLoggedZxid(), getPeerEpoch())) {
+                                    updateProposal(n.leader, n.zxid, n.peerEpoch);
+                                } else {
+                                    updateProposal(getInitId(),
+                                            getInitLastLoggedZxid(),
+                                            getPeerEpoch());
+                                }
+                                //通知其它服务器
+                                sendNotifications();
+                            } else if (n.electionEpoch < logicalclock.get()) {//如果比当前小，证明参加选举的已经过时，就直接忽略这个投票信息。
+                                if(LOG.isDebugEnabled()){
+                                    LOG.debug("Notification election epoch is smaller than logicalclock. n.electionEpoch = 0x"
+                                            + Long.toHexString(n.electionEpoch)
+                                            + ", logicalclock=0x" + Long.toHexString(logicalclock.get()));
+                                }
+                                break;
+                            } else if (totalOrderPredicate(n.leader, n.zxid, n.peerEpoch,
+                                    proposedLeader, proposedZxid, proposedEpoch)) {
+                                //这个时候epoch肯定一致了。所以就来比较一下zxid，谁得zxid越新就投给谁。
+                                //如果连zxid都一致，那就看sid（即serverid）,这个肯定是能区分的，所以就确定了投票。
+                                //但是如果自己跟自己比，就没有意义了，所以自己就不进。
                                 updateProposal(n.leader, n.zxid, n.peerEpoch);
-                            } else {
-                                updateProposal(getInitId(),
-                                        getInitLastLoggedZxid(),
-                                        getPeerEpoch());
+                                sendNotifications();
                             }
-                            //通知其它服务器
-                            sendNotifications();
-                        } else if (n.electionEpoch < logicalclock.get()) {//如果比当前小，证明参加选举的已经过时，就直接忽略这个投票信息。
+
                             if(LOG.isDebugEnabled()){
-                                LOG.debug("Notification election epoch is smaller than logicalclock. n.electionEpoch = 0x"
-                                        + Long.toHexString(n.electionEpoch)
-                                        + ", logicalclock=0x" + Long.toHexString(logicalclock.get()));
+                                LOG.debug("Adding vote: from=" + n.sid +
+                                        ", proposed leader=" + n.leader +
+                                        ", proposed zxid=0x" + Long.toHexString(n.zxid) +
+                                        ", proposed election epoch=0x" + Long.toHexString(n.electionEpoch));
+                            }
+
+                            recvset.put(n.sid, new Vote(n.leader, n.zxid, n.electionEpoch, n.peerEpoch));
+                            ///判断是否投票结束，就是判断是否有过半的服务器投的同一个。
+                            if (termPredicate(recvset,
+                                    new Vote(proposedLeader, proposedZxid,
+                                            logicalclock.get(), proposedEpoch))) {
+
+                                // Verify if there is any change in the proposed leader
+                                //验证投票中过半的投票是否有变动
+                                while((n = recvqueue.poll(finalizeWait,
+                                        TimeUnit.MILLISECONDS)) != null){
+                                    if(totalOrderPredicate(n.leader, n.zxid, n.peerEpoch,
+                                            proposedLeader, proposedZxid, proposedEpoch)){
+                                        recvqueue.put(n);
+                                        break;
+                                    }
+                                }
+
+                                /*
+                                 * This predicate is true once we don't read any new
+                                 * relevant message from the reception queue
+                                 */
+                                //上面的while一直从recvqueue取，直到取为空，并且还要符合过半机制才结束，所以这里的n基本就是null
+                                //然后就分配各自的角色。
+                                if (n == null) {
+                                    self.setPeerState((proposedLeader == self.getId()) ?
+                                            ServerState.LEADING: learningState());
+
+                                    Vote endVote = new Vote(proposedLeader,
+                                            proposedZxid,
+                                            logicalclock.get(),
+                                            proposedEpoch);
+                                    leaveInstance(endVote);
+                                    return endVote;
+                                }
                             }
                             break;
-                        } else if (totalOrderPredicate(n.leader, n.zxid, n.peerEpoch,
-                                proposedLeader, proposedZxid, proposedEpoch)) {
-                            //这个时候epoch肯定一致了。所以就来比较一下zxid，谁得zxid越新就投给谁。
-                            //如果连zxid都一致，那就看sid（即serverid）,这个肯定是能区分的，所以就确定了投票。
-                            //但是如果自己跟自己比，就没有意义了，所以自己就不进。
-                            updateProposal(n.leader, n.zxid, n.peerEpoch);
-                            sendNotifications();
-                        }
+                        case OBSERVING:
+                            LOG.debug("Notification from observer: " + n.sid);
+                            break;
+                        case FOLLOWING:
+                        case LEADING:
+                            /*
+                             * Consider all notifications from the same epoch
+                             * together.
+                             */
+                            if(n.electionEpoch == logicalclock.get()){
+                                recvset.put(n.sid, new Vote(n.leader,
+                                        n.zxid,
+                                        n.electionEpoch,
+                                        n.peerEpoch));
 
-                        if(LOG.isDebugEnabled()){
-                            LOG.debug("Adding vote: from=" + n.sid +
-                                    ", proposed leader=" + n.leader +
-                                    ", proposed zxid=0x" + Long.toHexString(n.zxid) +
-                                    ", proposed election epoch=0x" + Long.toHexString(n.electionEpoch));
-                        }
+                                if(ooePredicate(recvset, outofelection, n)) {
+                                    self.setPeerState((n.leader == self.getId()) ?
+                                            ServerState.LEADING: learningState());
 
-                        recvset.put(n.sid, new Vote(n.leader, n.zxid, n.electionEpoch, n.peerEpoch));
-                        ///判断是否投票结束，就是判断是否有过半的服务器投的同一个。
-                        if (termPredicate(recvset,
-                                new Vote(proposedLeader, proposedZxid,
-                                        logicalclock.get(), proposedEpoch))) {
-
-                            // Verify if there is any change in the proposed leader
-                            //验证投票中过半的投票是否有变动
-                            while((n = recvqueue.poll(finalizeWait,
-                                    TimeUnit.MILLISECONDS)) != null){
-                                if(totalOrderPredicate(n.leader, n.zxid, n.peerEpoch,
-                                        proposedLeader, proposedZxid, proposedEpoch)){
-                                    recvqueue.put(n);
-                                    break;
+                                    Vote endVote = new Vote(n.leader,
+                                            n.zxid,
+                                            n.electionEpoch,
+                                            n.peerEpoch);
+                                    leaveInstance(endVote);
+                                    return endVote;
                                 }
                             }
 
                             /*
-                             * This predicate is true once we don't read any new
-                             * relevant message from the reception queue
+                             * Before joining an established ensemble, verify
+                             * a majority is following the same leader.
                              */
-                            //上面的while一直从recvqueue取，直到取为空，并且还要符合过半机制才结束，所以这里的n基本就是null
-                            //然后就分配各自的角色。
-                            if (n == null) {
-                                self.setPeerState((proposedLeader == self.getId()) ?
-                                        ServerState.LEADING: learningState());
+                            outofelection.put(n.sid, new Vote(n.version,
+                                    n.leader,
+                                    n.zxid,
+                                    n.electionEpoch,
+                                    n.peerEpoch,
+                                    n.state));
 
-                                Vote endVote = new Vote(proposedLeader,
-                                                        proposedZxid,
-                                                        logicalclock.get(),
-                                                        proposedEpoch);
-                                leaveInstance(endVote);
-                                return endVote;
-                            }
-                        }
-                        break;
-                    case OBSERVING:
-                        LOG.debug("Notification from observer: " + n.sid);
-                        break;
-                    case FOLLOWING:
-                    case LEADING:
-                        /*
-                         * Consider all notifications from the same epoch
-                         * together.
-                         */
-                        if(n.electionEpoch == logicalclock.get()){
-                            recvset.put(n.sid, new Vote(n.leader,
-                                                          n.zxid,
-                                                          n.electionEpoch,
-                                                          n.peerEpoch));
-                           
-                            if(ooePredicate(recvset, outofelection, n)) {
-                                self.setPeerState((n.leader == self.getId()) ?
-                                        ServerState.LEADING: learningState());
-
-                                Vote endVote = new Vote(n.leader, 
-                                        n.zxid, 
-                                        n.electionEpoch, 
+                            if(ooePredicate(outofelection, outofelection, n)) {
+                                synchronized(this){
+                                    logicalclock.set(n.electionEpoch);
+                                    self.setPeerState((n.leader == self.getId()) ?
+                                            ServerState.LEADING: learningState());
+                                }
+                                Vote endVote = new Vote(n.leader,
+                                        n.zxid,
+                                        n.electionEpoch,
                                         n.peerEpoch);
                                 leaveInstance(endVote);
                                 return endVote;
                             }
-                        }
-
-                        /*
-                         * Before joining an established ensemble, verify
-                         * a majority is following the same leader.
-                         */
-                        outofelection.put(n.sid, new Vote(n.version,
-                                                            n.leader,
-                                                            n.zxid,
-                                                            n.electionEpoch,
-                                                            n.peerEpoch,
-                                                            n.state));
-           
-                        if(ooePredicate(outofelection, outofelection, n)) {
-                            synchronized(this){
-                                logicalclock.set(n.electionEpoch);
-                                self.setPeerState((n.leader == self.getId()) ?
-                                        ServerState.LEADING: learningState());
-                            }
-                            Vote endVote = new Vote(n.leader,
-                                                    n.zxid,
-                                                    n.electionEpoch,
-                                                    n.peerEpoch);
-                            leaveInstance(endVote);
-                            return endVote;
-                        }
-                        break;
-                    default:
-                        LOG.warn("Notification state unrecognized: {} (n.state), {} (n.sid)",
-                                n.state, n.sid);
-                        break;
+                            break;
+                        default:
+                            LOG.warn("Notification state unrecognized: {} (n.state), {} (n.sid)",
+                                    n.state, n.sid);
+                            break;
                     }
                 } else {
                     if (!validVoter(n.leader)) {

@@ -351,7 +351,7 @@ public class Learner {
                     throw new IOException("Missing signature");                   
                 }
                 zk.getZKDatabase().setlastProcessedZxid(qp.getZxid());
-            } else if (qp.getType() == Leader.TRUNC) {//事务包，代表需要会滚事务。
+            } else if (qp.getType() == Leader.TRUNC) {//事务包，代表需要回滚事务。
                 //we need to truncate the log to the lastzxid of the leader
                 LOG.warn("Truncating log to get in sync with the leader 0x"
                         + Long.toHexString(qp.getZxid()));
@@ -449,22 +449,28 @@ public class Learner {
                     // epoch is set. QuorumPeer.loadDataBase() uses this file to
                     // detect the case where the server was terminated after
                     // taking a snapshot but before setting the current epoch.
+                    //创建一个updating文件名
                     File updating = new File(self.getTxnFactory().getSnapDir(),
                                         QuorumPeer.UPDATING_EPOCH_FILENAME);
+                    //非法判断
                     if (!updating.exists() && !updating.createNewFile()) {
                         throw new IOException("Failed to create " +
                                               updating.toString());
                     }
+                    //判断是否需要载入快照
                     if (snapshotNeeded) {
                         zk.takeSnapshot();
                     }
                     self.setCurrentEpoch(newEpoch);
+                    //非法判断
                     if (!updating.delete()) {
                         throw new IOException("Failed to delete " +
                                               updating.toString());
                     }
+                    //在此之后的任何操作都需要转到事务日志，而不是直接应用到内存中，证明已经同步完成了
                     writeToTxnLog = true; //Anything after this needs to go to the transaction log, not applied directly in memory
                     isPreZAB1_0 = false;
+                    //发送ack报文
                     writePacket(new QuorumPacket(Leader.ACK, newLeaderZxid, null, null), true);
                     break;
                 }

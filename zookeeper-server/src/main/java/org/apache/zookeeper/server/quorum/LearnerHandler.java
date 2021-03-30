@@ -405,15 +405,16 @@ public class LearnerHandler extends ZooKeeperThread {
                         +" peerLastZxid=0x"+Long.toHexString(peerLastZxid));
 
                 LinkedList<Proposal> proposals = leader.zk.getZKDatabase().getCommittedLog();
-
+                //follower的zxid与leader一样，发空的DIFF包
                 if (peerLastZxid == leader.zk.getZKDatabase().getDataTreeLastProcessedZxid()) {
                     // Follower is already sync with us, send empty diff
                     LOG.info("leader and follower are in sync, zxid=0x{}",
                             Long.toHexString(peerLastZxid));
                     packetToSend = Leader.DIFF;
                     zxidToSend = peerLastZxid;
-                } else if (proposals.size() != 0) {
+                } else if (proposals.size() != 0) {//如果有提议请求
                     LOG.debug("proposal size is {}", proposals.size());
+                    //如果peerLastZxid介于leader的[minCommittedLog ，maxCommittedLog ]之间
                     if ((maxCommittedLog >= peerLastZxid)
                             && (minCommittedLog <= peerLastZxid)) {
                         LOG.debug("Sending proposals to follower");
@@ -425,6 +426,7 @@ public class LearnerHandler extends ZooKeeperThread {
                         // Keep track of whether we are about to send the first packet.
                         // Before sending the first packet, we have to tell the learner
                         // whether to expect a trunc or a diff
+                        //发送包之前，要先告诉对端是diff还是trunc
                         boolean firstPacket=true;
 
                         // If we are here, we can use committedLog to sync with
@@ -435,13 +437,14 @@ public class LearnerHandler extends ZooKeeperThread {
 
                         for (Proposal propose: proposals) {
                             // skip the proposals the peer already has
+                            //发起的propose小于对端的peerLastZxid，说明对端已执行，直接略过
                             if (propose.packet.getZxid() <= peerLastZxid) {
                                 prevProposalZxid = propose.packet.getZxid();
                                 continue;
                             } else {
                                 // If we are sending the first packet, figure out whether to trunc
                                 // in case the follower has some proposals that the leader doesn't
-                                if (firstPacket) {
+                                if (firstPacket) {//如果我们发送的第一个包
                                     firstPacket = false;
                                     // Does the peer have some proposals that the leader hasn't seen yet
                                     if (prevProposalZxid < peerLastZxid) {
@@ -451,13 +454,15 @@ public class LearnerHandler extends ZooKeeperThread {
                                         updates = zxidToSend;
                                     }
                                 }
+                                //发送PROPOSAL数据包
                                 queuePacket(propose.packet);
                                 QuorumPacket qcommit = new QuorumPacket(Leader.COMMIT, propose.packet.getZxid(),
                                         null, null);
+                                //发送commit数据包
                                 queuePacket(qcommit);
                             }
                         }
-                    } else if (peerLastZxid > maxCommittedLog) {
+                    } else if (peerLastZxid > maxCommittedLog) {//如果对端的zxid大于leader的maxCommittedLog，发送TRUNC指令
                         LOG.debug("Sending TRUNC to follower zxidToSend=0x{} updates=0x{}",
                                 Long.toHexString(maxCommittedLog),
                                 Long.toHexString(updates));

@@ -842,37 +842,37 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
     protected Election createElectionAlgorithm(int electionAlgorithm){
         Election le=null;
-                
+
         //TODO: use a factory rather than a switch
         switch (electionAlgorithm) {
-        case 0:
-            le = new LeaderElection(this);
-            break;
-        case 1:
-            le = new AuthFastLeaderElection(this);
-            break;
-        case 2:
-            le = new AuthFastLeaderElection(this, true);
-            break;
-        case 3:
-            //创建一个QuorumCnxManager，里面存在几个重要的属性。
-            //ConcurrentHashMap<Long, ArrayBlockingQueue<ByteBuffer>> queueSendMap：
-            //ConcurrentHashMap<Long, SendWorker> senderWorkerMap：就是用来记录其他服务器id以及对应的SendWorker的
-            //ArrayBlockingQueue<Message> recvQueue：保存选票
-            //QuorumCnxManager.Listener
-            qcm = createCnxnManager();
-            //姑且认为就是一个监听器。因为是一个线程。
-            QuorumCnxManager.Listener listener = qcm.listener;
-            if(listener != null){
-                listener.start();//启动监听器
-                //这里面比较复杂
-                le = new FastLeaderElection(this, qcm);
-            } else {
-                LOG.error("Null listener when initializing cnx manager");
-            }
-            break;
-        default:
-            assert false;
+            case 0:
+                le = new LeaderElection(this);
+                break;
+            case 1:
+                le = new AuthFastLeaderElection(this);
+                break;
+            case 2:
+                le = new AuthFastLeaderElection(this, true);
+                break;
+            case 3:
+                //创建一个QuorumCnxManager，里面存在几个重要的属性。
+                //ConcurrentHashMap<Long, ArrayBlockingQueue<ByteBuffer>> queueSendMap：
+                //ConcurrentHashMap<Long, SendWorker> senderWorkerMap：就是用来记录其他服务器id以及对应的SendWorker的
+                //ArrayBlockingQueue<Message> recvQueue：保存选票
+                //QuorumCnxManager.Listener
+                qcm = createCnxnManager();
+                //姑且认为就是一个监听器。因为是一个线程。
+                QuorumCnxManager.Listener listener = qcm.listener;
+                if(listener != null){
+                    listener.start();//启动监听器
+                    //这里面比较复杂
+                    le = new FastLeaderElection(this, qcm);
+                } else {
+                    LOG.error("Null listener when initializing cnx manager");
+                }
+                break;
+            default:
+                assert false;
         }
         return le;
     }

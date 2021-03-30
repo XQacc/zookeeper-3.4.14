@@ -729,7 +729,7 @@ public class QuorumCnxManager {
         public void run() {
             int numRetries = 0;//重试次数
             InetSocketAddress addr;
-            while((!shutdown) && (numRetries < 3)){//未关闭且重试次数小于3
+            while((!shutdown) && (numRetries < 3)) {//未关闭且重试次数小于3
                 try {
                     ss = new ServerSocket();
                     ss.setReuseAddress(true);

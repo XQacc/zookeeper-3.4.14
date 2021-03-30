@@ -385,13 +385,13 @@ public class Leader {
 
         try {
             self.tick.set(0);
-            zk.loadData();//再加载一次？要做什么？
+                zk.loadData();//再加载一次？要做什么？
             
             leaderStateSummary = new StateSummary(self.getCurrentEpoch(), zk.getLastProcessedZxid());
 
             // Start thread that waits for connection requests from 
             // new followers.
-            //开个线程等follower连接进来
+            //开个线程等follower连接进来.LearnerHandler线程就是在这里启动的
             cnxAcceptor = new LearnerCnxAcceptor();
             cnxAcceptor.start();
             
